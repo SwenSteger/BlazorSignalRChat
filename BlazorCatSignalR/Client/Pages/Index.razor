@@ -1,0 +1,80 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JsRuntime
+
+@implements IAsyncDisposable
+
+
+<PageTitle>SignalR Chat</PageTitle>
+<h3>SignalR Chat</h3>
+
+@if (!IsConnected)
+{
+	<div class="input-group">
+		<input @bind="_username" class="form-control" placeholder="What is your name?" />
+		<button class="btn btn-primary form-control-append" @onclick="Connect">Connect</button>
+	</div>
+}
+else
+{
+	<textarea style="width: 100%; height: 500px;" @ref="_textAreaRef">
+		@_messages
+	</textarea>
+	<div class="input-group">
+		<input @bind-value="_message" @bind-value:event="oninput" @onkeyup="HandleInput" class="form-control" />
+		<button class="btn btn-primary form-control-append" @onclick="Send" disabled="@(!IsConnected)">Send</button>
+	</div>
+}
+
+@code {
+	private HubConnection? _hubConnection;
+
+	private string _messages = string.Empty;
+	private string _username = string.Empty;
+	private string _message = string.Empty;
+
+	private ElementReference _textAreaRef;
+
+	private async Task Connect()
+	{
+		_hubConnection = new HubConnectionBuilder()
+			.WithUrl(NavigationManager.ToAbsoluteUri($"/chat?username={_username}")).Build();
+
+		_hubConnection.On<string, string>("ReceiveMessage", (user, message) =>
+		{
+			var msg = $"{(string.IsNullOrEmpty(user) ? "" : user + ":")} {message}";
+			_messages += msg + "\n";
+			JsRuntime.InvokeVoidAsync("scrollToBottom", _textAreaRef);
+			StateHasChanged();
+		});
+		await _hubConnection.StartAsync();
+	}
+
+	private async Task Send()
+	{
+		if (_hubConnection != null)
+		{
+			await _hubConnection.SendAsync("SendMessage", _username, _message);
+			_message = string.Empty;
+		}
+	}
+
+	private async Task HandleInput(KeyboardEventArgs args)
+	{
+		if (args.Key.Equals("Enter"))
+		{
+			await Send();
+		}
+	}
+	
+	public bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
+
+	public async ValueTask DisposeAsync()
+	{
+		if (_hubConnection != null)
+		{
+			await _hubConnection.DisposeAsync();
+		}
+	}
+}
